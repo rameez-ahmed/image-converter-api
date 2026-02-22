@@ -17,8 +17,8 @@ app.post('/convert', upload.array('images', 10), async (req, res) => {
       return res.status(400).send('No files uploaded');
     }
 
-    const file = req.files[0]; // for simplicity, process first file (you can loop later for batch)
-    const { format = 'webp', quality = 80, width, compressOnly } = req.body;
+    const file = req.files[0]; // Process first file (add loop later for batch)
+    const { format = 'webp', quality = 80, width, keepOriginalSize, compressOnly } = req.body;
 
     let image = sharp(file.buffer);
 
@@ -27,12 +27,12 @@ app.post('/convert', upload.array('images', 10), async (req, res) => {
     if (compressOnly === 'true' || format === 'original') {
       // Keep original format when "Compress only" is checked
       const inputExt = file.originalname.split('.').pop().toLowerCase();
-      const supported = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'gif', 'tiff', 'bmp', 'heic', 'heif'];
-      outputFormat = supported.includes(inputExt) ? inputExt : 'webp';
+      const supportedOutput = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'gif'];
+      outputFormat = supportedOutput.includes(inputExt) ? inputExt : 'webp';
     }
 
     // Resize only if width is provided and "keep original size" is NOT checked
-    if (width && width !== '' && req.body.keepOriginalSize !== 'true') {
+    if (width && width !== '' && keepOriginalSize !== 'true') {
       image = image.resize(parseInt(width), null, { fit: 'inside', withoutEnlargement: true });
     }
 
@@ -50,7 +50,8 @@ app.post('/convert', upload.array('images', 10), async (req, res) => {
 
     res.send(outputBuffer);
   } catch (err) {
-    console.error(err);
+    console.error('Processing error:', err.message);
+    console.error('Stack:', err.stack);
     res.status(500).send('Error processing image');
   }
 });
