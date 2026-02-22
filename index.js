@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const cors = require('cors');
+const { convert } = require('heic-convert'); // for HEIC input support
 
 const app = express();
 app.use(cors());
@@ -17,26 +18,42 @@ app.post('/convert', upload.array('images', 10), async (req, res) => {
       return res.status(400).send('No files uploaded');
     }
 
-    const file = req.files[0]; // Process first file (add loop later for batch)
+    const file = req.files[0]; // process first file (add loop later for batch)
     const { format = 'webp', quality = 80, width, keepOriginalSize, compressOnly } = req.body;
 
-    let image = sharp(file.buffer);
+    let buffer = file.buffer;
+    let inputExt = file.originalname.split('.').pop().toLowerCase();
 
-    // Determine output format
-    let outputFormat = format;
-    if (compressOnly === 'true' || format === 'original') {
-      // Keep original format when "Compress only" is checked
-      const inputExt = file.originalname.split('.').pop().toLowerCase();
-      const supportedOutput = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'gif'];
-      outputFormat = supportedOutput.includes(inputExt) ? inputExt : 'webp';
+    // Handle HEIC/HEIF input with heic-convert
+    if (['heic', 'heif'].includes(inputExt)) {
+      try {
+        buffer = await convert({
+          buffer: file.buffer,
+          format: 'PNG', // convert to PNG first (safe for sharp)
+          quality: 1 // max quality for intermediate step
+        });
+        inputExt = 'png';
+      } catch (heicErr) {
+        console.error('HEIC conversion failed:', heicErr.message);
+        return res.status(400).send('Failed to process HEIC file. Try converting to JPG/PNG first.');
+      }
     }
 
-    // Resize only if width is provided and "keep original size" is NOT checked
+    let image = sharp(buffer);
+
+    // Determine final output format
+    let outputFormat = format;
+    if (compressOnly === 'true' || format === 'original') {
+      const supported = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'gif'];
+      outputFormat = supported.includes(inputExt) ? inputExt : 'webp';
+    }
+
+    // Resize if provided and not keepOriginalSize
     if (width && width !== '' && keepOriginalSize !== 'true') {
       image = image.resize(parseInt(width), null, { fit: 'inside', withoutEnlargement: true });
     }
 
-    // Convert to the chosen format with quality
+    // Final conversion
     const outputBuffer = await image
       .toFormat(outputFormat, { quality: parseInt(quality) })
       .toBuffer();
