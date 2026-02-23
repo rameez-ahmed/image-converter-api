@@ -6,9 +6,16 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
+// Increase body size limit
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ limit: '200mb', extended: true }));
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }
+  limits: { 
+    fileSize: 60 * 1024 * 1024,   // 60MB per file
+    files: 20
+  }
 });
 
 app.post('/convert', upload.array('images', 20), async (req, res) => {
