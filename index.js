@@ -2,39 +2,32 @@ const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
 const cors = require('cors');
+const heicConvert = require('heic-convert');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
-// Track active requests
 let activeRequests = 0;
 
-// Log every request
 app.use((req, res, next) => {
   activeRequests++;
   const start = Date.now();
   console.log(`[${new Date().toISOString()}] Request started — Active: ${activeRequests}`);
-
   res.on('finish', () => {
     activeRequests--;
     const duration = Date.now() - start;
     console.log(`[${new Date().toISOString()}] Request finished in ${duration}ms — Active: ${activeRequests} — Status: ${res.statusCode}`);
-
     if (duration > 15000) console.warn(`⚠️ SLOW REQUEST: ${duration}ms`);
     if (activeRequests > 10) console.warn(`⚠️ HIGH LOAD: ${activeRequests} concurrent requests`);
   });
-
   next();
 });
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 60 * 1024 * 1024,
-    files: 20
-  }
+  limits: { fileSize: 60 * 1024 * 1024, files: 20 }
 });
 
 app.post('/convert', upload.array('images', 20), async (req, res) => {
@@ -47,13 +40,30 @@ app.post('/convert', upload.array('images', 20), async (req, res) => {
     const results = [];
 
     for (const file of req.files) {
-      let image = sharp(file.buffer);
       const inputExt = file.originalname.split('.').pop().toLowerCase();
+
+      // ── Decode HEIC/HEIF using heic-convert first ──
+      let inputBuffer = file.buffer;
+      if (inputExt === 'heic' || inputExt === 'heif') {
+        try {
+          inputBuffer = await heicConvert({
+            buffer: file.buffer,
+            format: 'JPEG',
+            quality: 0.95
+          });
+        } catch (heicErr) {
+          console.error('HEIC convert error:', heicErr.message);
+          return res.status(500).send('Error processing HEIC file: ' + heicErr.message);
+        }
+      }
+
+      let image = sharp(inputBuffer);
 
       let outputFormat = format;
       if (compressOnly === 'true' || format === 'original') {
         const supported = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'gif'];
         outputFormat = supported.includes(inputExt) ? inputExt : 'webp';
+        if (inputExt === 'heic' || inputExt === 'heif') outputFormat = 'jpeg';
       }
 
       if (width && width !== '' && keepOriginalSize !== 'true') {
@@ -61,23 +71,22 @@ app.post('/convert', upload.array('images', 20), async (req, res) => {
       }
 
       const outputBuffer = await image
-        .toFormat(outputFormat, { quality: parseInt(quality) })
+        .toFormat(outputFormat === 'jpg' ? 'jpeg' : outputFormat, { quality: parseInt(quality) })
         .toBuffer();
 
-      const ext = outputFormat === 'jpeg' ? 'jpg' : outputFormat;
+      const ext = (outputFormat === 'jpeg' || outputFormat === 'jpg') ? 'jpg' : outputFormat;
       const originalName = file.originalname.replace(/\.[^.]+$/, '');
       results.push({ buffer: outputBuffer.toString('base64'), ext, originalName });
     }
 
     res.json(results);
-
   } catch (err) {
     console.error('Processing error:', err.message);
     res.status(500).send('Error processing image');
   }
 });
 
-// Health check — visit /status in browser to see server stats
+// Health check
 app.get('/status', (req, res) => {
   const mem = process.memoryUsage();
   res.json({
