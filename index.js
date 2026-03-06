@@ -86,6 +86,26 @@ app.post('/convert', upload.array('images', 20), async (req, res) => {
   }
 });
 
+// HEIC preview endpoint — returns small JPEG thumbnail as base64
+app.post('/preview', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).send('No file uploaded');
+    const inputExt = req.file.originalname.split('.').pop().toLowerCase();
+    let inputBuffer = req.file.buffer;
+    if (inputExt === 'heic' || inputExt === 'heif') {
+      inputBuffer = await heicConvert({ buffer: req.file.buffer, format: 'JPEG', quality: 0.7 });
+    }
+    const thumbBuffer = await sharp(inputBuffer)
+      .resize(300, 300, { fit: 'cover' })
+      .jpeg({ quality: 70 })
+      .toBuffer();
+    res.json({ buffer: thumbBuffer.toString('base64') });
+  } catch (err) {
+    console.error('Preview error:', err.message);
+    res.status(500).send('Preview failed');
+  }
+});
+
 // Health check
 app.get('/status', (req, res) => {
   const mem = process.memoryUsage();
